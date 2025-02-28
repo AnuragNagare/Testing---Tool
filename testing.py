@@ -8,7 +8,7 @@ import base64
 
 # Page config
 st.set_page_config(
-    page_title="API Testing Tool for Image URLs",
+    page_title="Synergopro API Testing Tool",
     layout="wide"
 )
 
@@ -19,7 +19,7 @@ if "current_response" not in st.session_state:
     st.session_state.current_response = None
 
 # Center the title
-st.markdown("<h1 style='text-align: center;'>API Testing Tool for Image URLs</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center;'>Synergopro API Testing Tool</h1>", unsafe_allow_html=True)
 
 # Create a container for the input form to center it
 form_container = st.container()
@@ -30,22 +30,34 @@ col_left, col_middle, col_right = st.columns([1, 3, 1])
 with col_middle:
     # Input section - centered in the page
     st.markdown("<h3 style='text-align: center;'>API Configuration</h3>", unsafe_allow_html=True)
-    api_url = st.text_input("Enter API URL:", placeholder="https://api.example.com/process")
     
-    # Method selection
-    method = st.radio("Request Method:", ["POST", "GET"], horizontal=True)
+    # Default API URL
+    api_url = st.text_input("Enter API URL:", value="https://aibackup.synergopro.com/analyze")
+    
+    # Project ID selection
+    project_ids = [
+        "41ca78bb-5884-4f2b-b72b-5bb600c77bfa",
+        "6e5b2157-5753-456b-9313-eef28f1e2151",
+        "e6753225-68d3-463e-ad32-2ae2a60a6264",
+        "7b115574-0677-4448-8a35-f5df0ae167d5"
+    ]
+    
+    selected_project_id = st.selectbox("Select Project ID:", project_ids)
     
     # Image URL input
     image_url = st.text_input("Enter Image URL:", placeholder="https://example.com/image.jpg")
     
+    # API Key / Authentication
+    with st.expander("API Authentication", expanded=True):
+        api_key = st.text_input("API Key/Token:", type="password", help="Enter your API key or authentication token if required")
+        auth_type = st.selectbox("Authentication Type:", ["None", "Bearer Token", "API Key", "Basic Auth"])
+    
     # Additional parameters section
-    with st.expander("Additional Parameters", expanded=False):
-        param_type = st.radio("Parameter Type:", ["Form Data", "JSON"], horizontal=True)
-        
+    with st.expander("Additional Parameters (Optional)", expanded=False):
         # Dynamic parameter inputs
         st.subheader("Custom Parameters")
         if "params" not in st.session_state:
-            st.session_state.params = [{"key": "correct", "value": "true"}]
+            st.session_state.params = [{"key": "", "value": ""}]
         
         # Display existing parameters
         for i, param in enumerate(st.session_state.params):
@@ -87,33 +99,42 @@ with col_middle:
 # Create a horizontal line to separate input from output
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# Process API request - this happens regardless of UI layout
+# Process API request
 if run_button:
     if api_url and image_url:
         try:
             with st.spinner("Processing request..."):
-                # Prepare request parameters
+                # Prepare custom parameters
                 custom_params = {param["key"]: param["value"] for param in st.session_state.params if param["key"]}
                 
-                # Get image content
-                img_response = requests.get(image_url, timeout=10)
-                img_content = img_response.content
+                # Build request payload according to the Synergopro API format
+                payload = {
+                    "project_id": selected_project_id,
+                    "image_url": image_url,
+                    **custom_params
+                }
                 
-                # Prepare request based on selected method and parameter type
-                if method == "POST":
-                    if param_type == "Form Data":
-                        files = {"image_file": (image_url.split("/")[-1], img_content, "image/jpeg")}
-                        response = requests.post(api_url, files=files, data=custom_params)
-                    else:  # JSON
-                        # Convert image to base64 for JSON payload
-                        encoded_img = base64.b64encode(img_content).decode('utf-8')
-                        json_data = {
-                            "image": encoded_img,
-                            **custom_params
-                        }
-                        response = requests.post(api_url, json=json_data)
-                else:  # GET
-                    response = requests.get(api_url, params={**custom_params, "image_url": image_url})
+                # Prepare headers based on authentication type
+                headers = {"Content-Type": "application/json"}
+                
+                if auth_type != "None" and api_key:
+                    if auth_type == "Bearer Token":
+                        headers["Authorization"] = f"Bearer {api_key}"
+                    elif auth_type == "API Key":
+                        headers["X-API-Key"] = api_key
+                    elif auth_type == "Basic Auth":
+                        # Convert username:password to base64
+                        auth_str = base64.b64encode(api_key.encode()).decode()
+                        headers["Authorization"] = f"Basic {auth_str}"
+                
+                # Show current request information for debugging
+                with st.expander("Debug Request Information"):
+                    st.write("Request URL:", api_url)
+                    st.write("Request Headers:", headers)
+                    st.write("Request Payload:", payload)
+                
+                # Make the request
+                response = requests.post(api_url, json=payload, headers=headers)
                 
                 # Process response
                 if response.status_code in [200, 201]:
@@ -123,7 +144,7 @@ if run_button:
                             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                             "image_url": image_url,
                             "api_url": api_url,
-                            "method": method,
+                            "project_id": selected_project_id,
                             "params": custom_params,
                             "status_code": response.status_code,
                             "response": json_response
@@ -134,7 +155,11 @@ if run_button:
                         st.text_area("Response Text:", value=response.text, height=200)
                 else:
                     st.error(f"Failed to fetch API response. Status Code: {response.status_code}")
-                    st.text_area("Response Text:", value=response.text, height=200)
+                    try:
+                        error_json = response.json()
+                        st.json(error_json)
+                    except:
+                        st.text_area("Response Text:", value=response.text, height=200)
             
         except Exception as e:
             st.error(f"Error: {str(e)}")
@@ -153,11 +178,12 @@ if st.session_state.current_response:
         st.subheader("Request Information")
         st.markdown(f"**Timestamp:** {result['timestamp']}")
         st.markdown(f"**API URL:** {result['api_url']}")
-        st.markdown(f"**Method:** {result['method']}")
+        st.markdown(f"**Project ID:** {result['project_id']}")
         st.markdown(f"**Status Code:** {result['status_code']}")
-        st.markdown("**Parameters:**")
-        for k, v in result["params"].items():
-            st.markdown(f"- {k}: {v}")
+        if result["params"]:
+            st.markdown("**Additional Parameters:**")
+            for k, v in result["params"].items():
+                st.markdown(f"- {k}: {v}")
     
     # Middle column - Image
     with result_col2:
@@ -194,7 +220,7 @@ if st.session_state.current_response:
             st.download_button(
                 label="Download Edited JSON",
                 data=edited_json.encode("utf-8"),
-                file_name=f"api_response_{time.strftime('%Y%m%d_%H%M%S')}.json",
+                file_name=f"synergopro_response_{time.strftime('%Y%m%d_%H%M%S')}.json",
                 mime="application/json",
                 use_container_width=True
             )
@@ -224,7 +250,7 @@ if st.session_state.history:
     # Display selected history item
     st.sidebar.image(selected_item["image_url"], caption="Image", use_column_width=True)
     st.sidebar.markdown(f"**API:** {selected_item['api_url']}")
-    st.sidebar.markdown(f"**Method:** {selected_item['method']}")
+    st.sidebar.markdown(f"**Project ID:** {selected_item['project_id']}")
     
     # Action buttons
     sidebar_col1, sidebar_col2 = st.sidebar.columns(2)
@@ -245,4 +271,4 @@ else:
 
 # Footer
 st.markdown("---")
-st.markdown("API Testing Tool for Image URLs | v1.0")
+st.markdown("Synergopro API Testing Tool | v1.0")
