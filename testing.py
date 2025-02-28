@@ -39,7 +39,10 @@ with col_middle:
         "41ca78bb-5884-4f2b-b72b-5bb600c77bfa",
         "6e5b2157-5753-456b-9313-eef28f1e2151",
         "e6753225-68d3-463e-ad32-2ae2a60a6264",
-        "7b115574-0677-4448-8a35-f5df0ae167d5"
+        "7b115574-0677-4448-8a35-f5df0ae167d5",
+        "234cee91-b338-48db-a167-610a8d397ff1",
+        "c19abdcb-fab5-45c5-8dd4-728f978f68cf",
+        "6a15bd58-f78a-4ab2-b070-d0454a5d31fa"
     ]
     
     selected_project_id = st.selectbox("Select Project ID:", project_ids)
@@ -166,56 +169,54 @@ if run_button:
     else:
         st.warning("Please enter both API URL and Image URL.")
 
-# Display current result in the three-column layout
+# Display current result with new layout
 if st.session_state.current_response:
     result = st.session_state.current_response
     
-    # Create three columns for results: left (info), middle (image), right (JSON)
-    result_col1, result_col2, result_col3 = st.columns([1, 1, 1])
+    # Create a layout with a smaller image and JSON responses side by side
+    layout_cols = st.columns([1, 2, 2])
     
-    # Left column - Basic info
-    with result_col1:
-        st.subheader("Request Information")
-        st.markdown(f"**Timestamp:** {result['timestamp']}")
-        st.markdown(f"**API URL:** {result['api_url']}")
-        st.markdown(f"**Project ID:** {result['project_id']}")
-        st.markdown(f"**Status Code:** {result['status_code']}")
-        if result["params"]:
-            st.markdown("**Additional Parameters:**")
-            for k, v in result["params"].items():
-                st.markdown(f"- {k}: {v}")
-    
-    # Middle column - Image
-    with result_col2:
+    # Left column - Small image
+    with layout_cols[0]:
         st.subheader("Processed Image")
         st.image(result["image_url"], use_column_width=True)
     
-    # Right column - JSON response
-    with result_col3:
+    # Middle column - JSON response (showing only parsed_json)
+    with layout_cols[1]:
         st.subheader("API JSON Response")
-        json_text = json.dumps(result["response"], indent=2)
-        st.json(result["response"])
+        # Extract only the parsed_json part if it exists
+        if "parsed_json" in result["response"]:
+            parsed_json = result["response"]["parsed_json"]
+            st.json(parsed_json)
+            # Use parsed_json for the editable section
+            json_text = json.dumps(parsed_json, indent=2)
+        else:
+            # Fallback to full response if parsed_json doesn't exist
+            st.json(result["response"])
+            json_text = json.dumps(result["response"], indent=2)
+        
+        # Add a button to view full response if needed
+        with st.expander("View Full Response", expanded=False):
+            st.json(result["response"])
     
-    # Full-width section for editable JSON and download
-    st.subheader("Edit JSON Response")
-    edited_json = st.text_area(
-        label="Edit JSON",
-        value=json_text,
-        height=300,
-        key="json_editor"
-    )
-    
-    # Validate and enable download
-    valid_json = True
-    try:
-        json.loads(edited_json)
-    except json.JSONDecodeError:
-        st.error("Invalid JSON format! Fix it before downloading.")
-        valid_json = False
-    
-    # Center the download button
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
+    # Right column - Editable JSON
+    with layout_cols[2]:
+        st.subheader("Edit JSON Response")
+        edited_json = st.text_area(
+            label="Edit JSON",
+            value=json_text,
+            height=400,
+            key="json_editor"
+        )
+        
+        # Validate and enable download
+        valid_json = True
+        try:
+            json.loads(edited_json)
+        except json.JSONDecodeError:
+            st.error("Invalid JSON format! Fix it before downloading.")
+            valid_json = False
+        
         if valid_json:
             st.download_button(
                 label="Download Edited JSON",
@@ -224,6 +225,17 @@ if st.session_state.current_response:
                 mime="application/json",
                 use_container_width=True
             )
+            
+    # Store request information in an expander at the bottom for reference but not prominently displayed
+    with st.expander("Request Details", expanded=False):
+        st.markdown(f"**Timestamp:** {result['timestamp']}")
+        st.markdown(f"**API URL:** {result['api_url']}")
+        st.markdown(f"**Project ID:** {result['project_id']}")
+        st.markdown(f"**Status Code:** {result['status_code']}")
+        if result["params"]:
+            st.markdown("**Additional Parameters:**")
+            for k, v in result["params"].items():
+                st.markdown(f"- {k}: {v}")
 
 # Sidebar for history
 st.sidebar.title("Previous Runs")
@@ -264,7 +276,11 @@ if st.session_state.history:
             st.rerun()
     
     with st.sidebar.expander("Response JSON"):
-        st.json(selected_item["response"])
+        # Also show parsed_json in the sidebar if available
+        if "parsed_json" in selected_item["response"]:
+            st.json(selected_item["response"]["parsed_json"])
+        else:
+            st.json(selected_item["response"])
 
 else:
     st.sidebar.info("No previous runs yet. Run the API to see history here.")
